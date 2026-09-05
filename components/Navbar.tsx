@@ -73,7 +73,7 @@ export default function Navbar() {
           <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider block">
             Barber Marketplace
           </span>
-          <span className="text-base font-black text-white">Cut & Style Hub</span>
+          <span className="text-base font-black text-white">UNI saloon</span>
         </div>
 
         <div className="flex items-center gap-2">
