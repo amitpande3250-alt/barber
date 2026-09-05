@@ -7,7 +7,7 @@ import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
 export default function AdminVerificationDashboard() {
-  const [currentEmail, setCurrentEmail] = useState<string | null>(null);
+  const [authorized, setAuthorized] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pendingShops, setPendingShops] = useState<any[]>([]);
   const [verifiedShops, setVerifiedShops] = useState<any[]>([]);
@@ -16,7 +16,6 @@ export default function AdminVerificationDashboard() {
 
   const fetchAdminShops = useCallback(async () => {
     setLoading(true);
-    // 1. Pending verification
     const { data: pending } = await supabase
       .from("shops")
       .select("*")
@@ -24,7 +23,6 @@ export default function AdminVerificationDashboard() {
       .order("created_at", { ascending: false });
     if (pending) setPendingShops(pending);
 
-    // 2. Already live
     const { data: live } = await supabase
       .from("shops")
       .select("*")
@@ -39,18 +37,23 @@ export default function AdminVerificationDashboard() {
     const unsub = onAuthStateChanged(auth, (user) => {
       const email = user?.email || localStorage.getItem("customer_user_email");
       const cleanEmail = (email || "").trim().toLowerCase();
-      setCurrentEmail(cleanEmail);
 
       if (cleanEmail !== "amitpande3250@gmail.com") {
-        alert("Access Denied: Only Master Admin can access this dashboard.");
-        router.push("/");
+        setAuthorized(false);
+        router.replace("/");
         return;
       }
+
+      setAuthorized(true);
       fetchAdminShops();
     });
 
     return () => unsub();
   }, [router, fetchAdminShops]);
+
+  if (!authorized) {
+    return null; // Return nothing to unauthorized users
+  }
 
   const approveShop = async (shopId: string, shopName: string) => {
     const { error } = await supabase
@@ -82,17 +85,8 @@ export default function AdminVerificationDashboard() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-neutral-950 text-neutral-400 p-6 flex items-center justify-center text-xs">
-        Checking Admin Access & Loading Real Location Data...
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 max-w-2xl mx-auto p-4 pb-20 font-sans">
-      {/* Header */}
       <div className="flex items-center justify-between border-b border-neutral-800 pb-4 mb-4">
         <div>
           <span className="text-[10px] text-red-400 font-black uppercase tracking-wider bg-red-500/10 px-2 py-0.5 rounded-md border border-red-500/30">
@@ -108,7 +102,6 @@ export default function AdminVerificationDashboard() {
         </button>
       </div>
 
-      {/* Tabs */}
       <div className="grid grid-cols-2 gap-2 bg-neutral-900 p-1 rounded-2xl mb-4 border border-neutral-800">
         <button
           onClick={() => setActiveTab("pending")}
@@ -132,7 +125,6 @@ export default function AdminVerificationDashboard() {
         </button>
       </div>
 
-      {/* Pending Reviews List */}
       {activeTab === "pending" && (
         <div className="space-y-4">
           {pendingShops.length === 0 ? (
@@ -151,7 +143,7 @@ export default function AdminVerificationDashboard() {
                       Category: {(shop.category || "Unisex").toUpperCase()}
                     </span>
                     <h2 className="text-base font-extrabold text-white mt-1">{shop.name}</h2>
-                    <p className="text-xs text-neutral-400">Owner Email: <span className="text-neutral-200">{shop.owner_email || "N/A"}</span></p>
+                    <p className="text-xs text-neutral-400">Owner: <span className="text-neutral-200">{shop.owner_email || "N/A"}</span></p>
                     <p className="text-xs text-neutral-400">Phone: <span className="text-neutral-200">{shop.phone || "Not provided"}</span></p>
                   </div>
 
@@ -160,7 +152,6 @@ export default function AdminVerificationDashboard() {
                   </span>
                 </div>
 
-                {/* Location Inspection Box */}
                 <div className="bg-neutral-950 p-3 rounded-2xl border border-neutral-800 space-y-1.5">
                   <p className="text-xs text-neutral-300">
                     📍 <strong className="text-white">Physical Address:</strong> {shop.address} {shop.city ? `, ${shop.city}` : ""}
@@ -176,22 +167,21 @@ export default function AdminVerificationDashboard() {
                         🗺️ Inspect on Google Maps ↗
                       </a>
                     ) : (
-                      <span className="text-[11px] text-red-400">⚠️ No direct map coordinate link submitted</span>
+                      <span className="text-[11px] text-red-400">⚠️ No direct map link</span>
                     )}
                   </div>
                 </div>
 
-                {/* Action Buttons */}
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <button
                     onClick={() => approveShop(shop.id, shop.name)}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs transition shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1"
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs transition shadow-md shadow-emerald-600/20"
                   >
-                    ✓ Verify & Publish Live
+                    ✓ Verify & Publish
                   </button>
                   <button
                     onClick={() => deleteShop(shop.id, shop.name)}
-                    className="bg-red-950 border border-red-500/40 hover:bg-red-900/60 text-red-300 font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1"
+                    className="bg-red-950 border border-red-500/40 hover:bg-red-900/60 text-red-300 font-bold py-2.5 rounded-xl text-xs transition"
                   >
                     ✕ Reject / Delete
                   </button>
@@ -202,7 +192,6 @@ export default function AdminVerificationDashboard() {
         </div>
       )}
 
-      {/* Already Live List */}
       {activeTab === "live" && (
         <div className="space-y-3">
           {verifiedShops.map((shop) => (

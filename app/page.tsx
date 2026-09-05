@@ -8,12 +8,11 @@ import { onAuthStateChanged } from "firebase/auth";
 
 export default function MarketplaceHome() {
   const [shops, setShops] = useState<any[]>([]);
-  const [unverifiedShops, setUnverifiedShops] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
   const [currentEmail, setCurrentEmail] = useState<string | null>(null);
   const [ownedShopId, setOwnedShopId] = useState<string | null>(null);
 
-  // Review Modal State
   const [pendingReviewBooking, setPendingReviewBooking] = useState<any>(null);
   const [ratingVal, setRatingVal] = useState(5);
   const [reviewText, setReviewText] = useState("");
@@ -23,11 +22,12 @@ export default function MarketplaceHome() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const router = useRouter();
-  const isAdmin = currentEmail === "amitpande3250@gmail.com";
+
+  // Strict Admin Evaluation
+  const isAdmin = !authLoading && currentEmail === "amitpande3250@gmail.com";
 
   const fetchShops = useCallback(async () => {
     setLoading(true);
-    // Fetch all verified shops
     const { data: verified } = await supabase
       .from("shops")
       .select("*")
@@ -35,16 +35,6 @@ export default function MarketplaceHome() {
       .order("rating", { ascending: false });
 
     if (verified) setShops(verified);
-
-    // Fetch unverified shops for Admin review
-    const { data: unverified } = await supabase
-      .from("shops")
-      .select("*")
-      .eq("is_verified", false)
-      .order("created_at", { ascending: false });
-
-    if (unverified) setUnverifiedShops(unverified);
-
     setLoading(false);
   }, []);
 
@@ -83,39 +73,11 @@ export default function MarketplaceHome() {
         setCurrentEmail(null);
         setOwnedShopId(null);
       }
+      setAuthLoading(false);
     });
 
     return () => unsub();
   }, [fetchShops]);
-
-  // Admin Verification Actions
-  const handleApproveShop = async (shopId: string) => {
-    const { error } = await supabase
-      .from("shops")
-      .update({ is_verified: true })
-      .eq("id", shopId);
-
-    if (!error) {
-      alert("Salon verified & is now live on marketplace!");
-      fetchShops();
-    }
-  };
-
-  const handleDeleteShop = async (shopId: string, shopName: string) => {
-    const confirmDelete = window.confirm(
-      `[ADMIN] Kya aap "${shopName}" ko delete karna chahte hain?`
-    );
-    if (!confirmDelete) return;
-
-    await supabase.from("bookings").delete().eq("shop_id", shopId);
-    await supabase.from("barbers").delete().eq("shop_id", shopId);
-    const { error } = await supabase.from("shops").delete().eq("id", shopId);
-
-    if (!error) {
-      alert(`"${shopName}" removed!`);
-      fetchShops();
-    }
-  };
 
   const submitReview = async () => {
     if (!pendingReviewBooking) return;
@@ -196,50 +158,7 @@ export default function MarketplaceHome() {
         </div>
       )}
 
-      {/* 2. ADMIN VERIFICATION PANEL (Only for amitpande3250@gmail.com) */}
-      {isAdmin && unverifiedShops.length > 0 && (
-        <div className="m-4 p-4 rounded-3xl bg-amber-500/10 border border-amber-500/30 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">
-              ⚠️ Pending Approvals ({unverifiedShops.length})
-            </span>
-            <span className="text-[10px] bg-amber-500 text-neutral-950 px-2 py-0.5 rounded-full font-extrabold">
-              Admin Only
-            </span>
-          </div>
-          <p className="text-[11px] text-neutral-400">
-            Yeh shops abhi live nahi hain. Inhe verify karke approve karo ya delete karo:
-          </p>
-
-          <div className="space-y-2">
-            {unverifiedShops.map((u) => (
-              <div key={u.id} className="p-3 bg-neutral-900 border border-neutral-800 rounded-2xl flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-white">{u.name}</h4>
-                  <p className="text-[10px] text-neutral-400">📍 {u.address} | 📞 {u.phone || "No phone"}</p>
-                  <p className="text-[10px] text-neutral-500">By: {u.owner_email}</p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={() => handleApproveShop(u.id)}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1.5 rounded-xl text-xs"
-                  >
-                    ✓ Live
-                  </button>
-                  <button
-                    onClick={() => handleDeleteShop(u.id, u.name)}
-                    className="bg-red-600 hover:bg-red-500 text-white font-bold px-2.5 py-1.5 rounded-xl text-xs"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 3. CLEAN SEARCH BAR + ACTIONS */}
+      {/* 2. TOP BAR & SEARCH */}
       <section className="px-4 pt-4 pb-2">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
@@ -253,27 +172,33 @@ export default function MarketplaceHome() {
             <span className="absolute left-3.5 top-2.5 text-neutral-500 text-xs">🔍</span>
           </div>
 
-          {currentEmail && (
-            ownedShopId ? (
-              <button
-                onClick={() => router.push("/admin")}
-                className="text-xs bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 px-3 py-2.5 rounded-2xl font-bold transition flex items-center gap-1 shrink-0"
-              >
-                <span>🛡️ Admin Panel</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => router.push("/register-shop")}
-                className="text-xs bg-amber-500 hover:bg-amber-400 text-neutral-950 px-3 py-2.5 rounded-2xl font-bold transition shrink-0"
-              >
-                + Register
-              </button>
-            )
+          {/* ADMIN ONLY BUTTON: Strictly hidden for anyone else */}
+          {isAdmin ? (
+            <button
+              onClick={() => router.push("/admin")}
+              className="text-xs bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 px-3 py-2.5 rounded-2xl font-bold transition flex items-center gap-1 shrink-0"
+            >
+              🛡️ Admin
+            </button>
+          ) : currentEmail && ownedShopId ? (
+            <button
+              onClick={() => router.push("/portal-access/dashboard")}
+              className="text-xs bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 px-3 py-2.5 rounded-2xl font-bold transition flex items-center gap-1 shrink-0"
+            >
+              💈 Dashboard
+            </button>
+          ) : (
+            <button
+              onClick={() => router.push("/register-shop")}
+              className="text-xs bg-amber-500 hover:bg-amber-400 text-neutral-950 px-3 py-2.5 rounded-2xl font-bold transition shrink-0"
+            >
+              + Register
+            </button>
           )}
         </div>
       </section>
 
-      {/* 4. CATEGORY SELECTOR TABS */}
+      {/* 3. CATEGORY TABS */}
       <div className="p-4 space-y-4 pt-2">
         <div className="grid grid-cols-3 gap-2 p-1 bg-neutral-900 border border-neutral-800 rounded-2xl">
           <button
@@ -305,7 +230,7 @@ export default function MarketplaceHome() {
           </button>
         </div>
 
-        {/* 5. VERIFIED SALON LISTINGS */}
+        {/* 4. VERIFIED SALONS */}
         <div className="space-y-4">
           {loading ? (
             <p className="text-center py-12 text-xs text-neutral-500 animate-pulse">
@@ -340,16 +265,6 @@ export default function MarketplaceHome() {
                         ? "✂️ GENTS ONLY"
                         : "✨ UNISEX"}
                     </span>
-
-                    {/* ADMIN MASTER DELETE */}
-                    {isAdmin && (
-                      <button
-                        onClick={() => handleDeleteShop(shop.id, shop.name)}
-                        className="absolute top-3 right-3 bg-red-600/90 hover:bg-red-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-xl shadow-md transition flex items-center gap-1"
-                      >
-                        🗑️ Delete
-                      </button>
-                    )}
                   </div>
 
                   <div className="p-4 flex items-center justify-between gap-2">
