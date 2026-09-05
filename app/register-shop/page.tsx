@@ -17,38 +17,50 @@ export default function RegisterShopPage() {
   const [gettingLocation, setGettingLocation] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  // Live GPS Location Tracker
+  // Fast & Robust GPS Location Tracker
   const handleGetLiveLocation = () => {
     if (!navigator.geolocation) {
-      alert("Aapke device me Geolocation support nahi hai. Kripya manually link dalein.");
+      alert("Geolocation is not supported by your device browser.");
       return;
     }
 
     setGettingLocation(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        const generatedLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
-        setMapLink(generatedLink);
-        setGettingLocation(false);
-        alert(`Location detected successfully!\nCoords: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
-      },
-      (error) => {
-        setGettingLocation(false);
-        if (error.code === error.PERMISSION_DENIED) {
-          alert("Location access denied! Phone settings me browser ko location permission dein.");
-        } else {
-          alert("Location detect karne me samasya aayi: " + error.message);
-        }
-      },
-      { enableHighAccuracy: true, timeout: 15000 }
-    );
+
+    const successHandler = (position: GeolocationPosition) => {
+      const { latitude, longitude } = position.coords;
+      const generatedLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
+      setMapLink(generatedLink);
+      setGettingLocation(false);
+      alert(`Location locked successfully!\nLat: ${latitude.toFixed(5)}, Long: ${longitude.toFixed(5)}`);
+    };
+
+    const errorHandler = (error: GeolocationPositionError) => {
+      // Fallback try with low accuracy if high accuracy failed
+      navigator.geolocation.getCurrentPosition(
+        successHandler,
+        (secondErr) => {
+          setGettingLocation(false);
+          if (secondErr.code === secondErr.PERMISSION_DENIED) {
+            alert("Location access denied! Please allow location permissions in Chrome/browser settings.");
+          } else {
+            alert("Could not auto-detect GPS. Please open Google Maps, copy your shop link and paste it below.");
+          }
+        },
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+      );
+    };
+
+    navigator.geolocation.getCurrentPosition(successHandler, errorHandler, {
+      enableHighAccuracy: false,
+      timeout: 10000,
+      maximumAge: 60000
+    });
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mapLink) {
-      alert("Kripya live GPS location detect karein ya map link add karein.");
+      alert("Please tap 'Detect Current Shop Location' or paste a Google Maps link.");
       return;
     }
 
@@ -94,10 +106,10 @@ export default function RegisterShopPage() {
               <p className="text-xs text-neutral-300 leading-relaxed">
                 Thank you for listing <strong className="text-amber-400">{name}</strong> on UNI saloon.
               </p>
-              <div className="p-3 bg-neutral-950 rounded-2xl border border-neutral-800 text-[11px] text-neutral-400 text-left space-y-1">
-                <p>• <strong>Location Verification:</strong> Our administrative team will inspect your physical salon address and GPS coordinates.</p>
-                <p>• <strong>Review Window:</strong> Verification typically takes up to <strong>24 hours</strong>.</p>
-                <p>• <strong>Go Live:</strong> Once approved, your studio will be published on the marketplace.</p>
+              <div className="p-3 bg-neutral-950 rounded-2xl border border-neutral-800 text-[11px] text-neutral-400 text-left space-y-1.5">
+                <p>• <strong>Location Verification:</strong> Our team is verifying your physical address and GPS coordinates.</p>
+                <p>• <strong>Review Window:</strong> Verification typically completes within <strong>24 hours</strong>.</p>
+                <p>• <strong>Publishing:</strong> Once approved, your studio will appear live on the marketplace.</p>
               </div>
             </div>
 
@@ -197,13 +209,13 @@ export default function RegisterShopPage() {
             </label>
             {mapLink && (
               <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                ✓ Location Tagged
+                ✓ Location Locked
               </span>
             )}
           </div>
           
           <p className="text-[11px] text-neutral-400 leading-relaxed">
-            Dukan me khade hokar niche diye button ko dabayein taaki exact live GPS location capture ho sake.
+            Tap the button below while at your shop to tag exact coordinates:
           </p>
 
           <button
@@ -218,7 +230,7 @@ export default function RegisterShopPage() {
           <input
             type="url"
             required
-            placeholder="Live Google Maps Link yahan generate hoga..."
+            placeholder="Or paste Google Maps link manually..."
             value={mapLink}
             onChange={(e) => setMapLink(e.target.value)}
             className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-[11px] text-neutral-300 placeholder-neutral-600 focus:outline-none focus:border-amber-500"
