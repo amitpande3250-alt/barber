@@ -23,7 +23,6 @@ export default function MarketplaceHome() {
 
   const router = useRouter();
 
-  // Strict Admin Evaluation
   const isAdmin = !authLoading && currentEmail === "amitpande3250@gmail.com";
 
   const fetchShops = useCallback(async () => {
@@ -57,7 +56,7 @@ export default function MarketplaceHome() {
 
     const unsub = onAuthStateChanged(auth, async (user) => {
       const email = user?.email || localStorage.getItem("customer_user_email");
-      if (email) {
+      if (email && email.trim().length > 0) {
         const clean = email.trim().toLowerCase();
         setCurrentEmail(clean);
         checkCustomerReviews(clean);
@@ -68,7 +67,11 @@ export default function MarketplaceHome() {
           .ilike("owner_email", clean)
           .limit(1);
 
-        if (data && data.length > 0) setOwnedShopId(data[0].id);
+        if (data && data.length > 0) {
+          setOwnedShopId(data[0].id);
+        } else {
+          setOwnedShopId(null);
+        }
       } else {
         setCurrentEmail(null);
         setOwnedShopId(null);
@@ -172,28 +175,30 @@ export default function MarketplaceHome() {
             <span className="absolute left-3.5 top-2.5 text-neutral-500 text-xs">🔍</span>
           </div>
 
-          {/* ADMIN ONLY BUTTON: Strictly hidden for anyone else */}
-          {isAdmin ? (
-            <button
-              onClick={() => router.push("/admin")}
-              className="text-xs bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 px-3 py-2.5 rounded-2xl font-bold transition flex items-center gap-1 shrink-0"
-            >
-              🛡️ Admin
-            </button>
-          ) : currentEmail && ownedShopId ? (
-            <button
-              onClick={() => router.push("/portal-access/dashboard")}
-              className="text-xs bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 px-3 py-2.5 rounded-2xl font-bold transition flex items-center gap-1 shrink-0"
-            >
-              💈 Dashboard
-            </button>
-          ) : (
-            <button
-              onClick={() => router.push("/register-shop")}
-              className="text-xs bg-amber-500 hover:bg-amber-400 text-neutral-950 px-3 py-2.5 rounded-2xl font-bold transition shrink-0"
-            >
-              + Register
-            </button>
+          {/* Action Button: ONLY when logged in */}
+          {!authLoading && currentEmail && (
+            isAdmin ? (
+              <button
+                onClick={() => router.push("/admin")}
+                className="text-xs bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 px-3 py-2.5 rounded-2xl font-bold transition flex items-center gap-1 shrink-0"
+              >
+                🛡️ Admin
+              </button>
+            ) : ownedShopId ? (
+              <button
+                onClick={() => router.push("/portal-access/dashboard")}
+                className="text-xs bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 px-3 py-2.5 rounded-2xl font-bold transition flex items-center gap-1 shrink-0"
+              >
+                <span>💈</span> Dashboard
+              </button>
+            ) : (
+              <button
+                onClick={() => router.push("/register-shop")}
+                className="text-xs bg-amber-500 hover:bg-amber-400 text-neutral-950 px-3 py-2.5 rounded-2xl font-bold transition shrink-0 shadow-sm"
+              >
+                + Register
+              </button>
+            )
           )}
         </div>
       </section>
