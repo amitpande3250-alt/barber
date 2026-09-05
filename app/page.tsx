@@ -8,78 +8,125 @@ import { onAuthStateChanged } from "firebase/auth";
 
 export default function MarketplaceHome() {
   const [shops, setShops] = useState<any[]>([]);
+  const [unverifiedShops, setUnverifiedShops] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentEmail, setCurrentEmail] = useState<string | null>(null);
   const [ownedShopId, setOwnedShopId] = useState<string | null>(null);
+
+  // Review Modal State
+  const [pendingReviewBooking, setPendingReviewBooking] = useState<any>(null);
+  const [ratingVal, setRatingVal] = useState(5);
+  const [reviewText, setReviewText] = useState("");
 
   const [selectedCategory, setSelectedCategory] = useState<"all" | "men" | "women">("all");
   const [sortByRating, setSortByRating] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState("");
 
   const router = useRouter();
+  const isAdmin = currentEmail === "amitpande3250@gmail.com";
 
   const fetchShops = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    // Fetch all verified shops
+    const { data: verified } = await supabase
       .from("shops")
       .select("*")
+      .eq("is_verified", true)
       .order("rating", { ascending: false });
 
-    if (data) {
-      setShops(data);
-    }
+    if (verified) setShops(verified);
+
+    // Fetch unverified shops for Admin review
+    const { data: unverified } = await supabase
+      .from("shops")
+      .select("*")
+      .eq("is_verified", false)
+      .order("created_at", { ascending: false });
+
+    if (unverified) setUnverifiedShops(unverified);
+
     setLoading(false);
   }, []);
+
+  const checkCustomerReviews = async (email: string) => {
+    const { data } = await supabase
+      .from("bookings")
+      .select("*, shops(name)")
+      .ilike("customer_phone", `%${email}%`)
+      .eq("status", "completed")
+      .is("rating", null)
+      .limit(1);
+
+    if (data && data.length > 0) {
+      setPendingReviewBooking(data[0]);
+    }
+  };
 
   useEffect(() => {
     fetchShops();
 
-    // Jab user dashboard se homepage par return kare, auto-refresh fresh data
-    const handleFocus = () => fetchShops();
-    window.addEventListener("focus", handleFocus);
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      const email = user?.email || localStorage.getItem("customer_user_email");
+      if (email) {
+        const clean = email.trim().toLowerCase();
+        setCurrentEmail(clean);
+        checkCustomerReviews(clean);
 
-    const checkUserAndShop = async (email: string | null) => {
-      if (!email) {
+        const { data } = await supabase
+          .from("shops")
+          .select("id")
+          .ilike("owner_email", clean)
+          .limit(1);
+
+        if (data && data.length > 0) setOwnedShopId(data[0].id);
+      } else {
         setCurrentEmail(null);
         setOwnedShopId(null);
-        return;
       }
+    });
 
-      const cleanEmail = email.trim().toLowerCase();
-      setCurrentEmail(cleanEmail);
-
-      const { data } = await supabase
-        .from("shops")
-        .select("id")
-        .ilike("owner_email", cleanEmail)
-        .limit(1);
-
-      if (data && data.length > 0) {
-        setOwnedShopId(data[0].id);
-      } else {
-        setOwnedShopId(null);
-      }
-    };
-
-    try {
-      const unsub = onAuthStateChanged(auth, (user) => {
-        if (user?.email) {
-          checkUserAndShop(user.email);
-        } else {
-          const fallback = localStorage.getItem("customer_user_email");
-          checkUserAndShop(fallback);
-        }
-      });
-      return () => {
-        unsub();
-        window.removeEventListener("focus", handleFocus);
-      };
-    } catch {
-      const fallback = localStorage.getItem("customer_user_email");
-      checkUserAndShop(fallback);
-      return () => window.removeEventListener("focus", handleFocus);
-    }
+    return () => unsub();
   }, [fetchShops]);
+
+  // Admin Verification Actions
+  const handleApproveShop = async (shopId: string) => {
+    const { error } = await supabase
+      .from("shops")
+      .update({ is_verified: true })
+      .eq("id", shopId);
+
+    if (!error) {
+      alert("Salon verified & is now live on marketplace!");
+      fetchShops();
+    }
+  };
+
+  const handleDeleteShop = async (shopId: string, shopName: string) => {
+    const confirmDelete = window.confirm(
+      `[ADMIN] Kya aap "${shopName}" ko delete karna chahte hain?`
+    );
+    if (!confirmDelete) return;
+
+    await supabase.from("bookings").delete().eq("shop_id", shopId);
+    await supabase.from("barbers").delete().eq("shop_id", shopId);
+    const { error } = await supabase.from("shops").delete().eq("id", shopId);
+
+    if (!error) {
+      alert(`"${shopName}" removed!`);
+      fetchShops();
+    }
+  };
+
+  const submitReview = async () => {
+    if (!pendingReviewBooking) return;
+    await supabase
+      .from("bookings")
+      .update({ rating: ratingVal, review_comment: reviewText })
+      .eq("id", pendingReviewBooking.id);
+
+    alert("Review submitted!");
+    setPendingReviewBooking(null);
+  };
 
   const filteredShops = shops
     .filter((shop) => {
@@ -98,225 +145,231 @@ export default function MarketplaceHome() {
 
       return matchesCategory && matchesSearch;
     })
-    .sort((a, b) => {
-      if (sortByRating) {
-        return (Number(b.rating) || 0) - (Number(a.rating) || 0);
-      }
-      return 0;
-    });
+    .sort((a, b) => (sortByRating ? (Number(b.rating) || 0) - (Number(a.rating) || 0) : 0));
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 p-4 max-w-lg mx-auto pb-14 font-sans">
-      <div className="flex items-center justify-between py-3 border-b border-neutral-900 mb-4">
-        <div>
-          <span className="text-[11px] text-amber-500 font-bold uppercase tracking-wider">
-            Salon & Parlour Marketplace
-          </span>
-          <h1 className="text-xl font-extrabold text-white">Find Top Rated Salons</h1>
-        </div>
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 max-w-lg mx-auto pb-20 font-sans">
+      {/* 1. REVIEW MODAL */}
+      {pendingReviewBooking && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-3xl w-full max-w-xs space-y-4 shadow-2xl">
+            <h3 className="text-sm font-bold text-white">Rate your salon service</h3>
+            <p className="text-xs text-neutral-400">
+              Service at <strong className="text-amber-400">{pendingReviewBooking.shops?.name}</strong> completed!
+            </p>
 
-        {currentEmail && (
-          ownedShopId ? (
-            <button
-              onClick={() => router.push("/portal-access/dashboard")}
-              className="text-xs bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/40 px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm"
-            >
-              <span>💈</span> My Salon
-            </button>
-          ) : (
-            <button
-              onClick={() => router.push("/register-shop")}
-              className="text-xs bg-amber-500 hover:bg-amber-400 text-neutral-950 px-3 py-1.5 rounded-xl font-bold transition shadow-md shadow-amber-500/10"
-            >
-              + Register Shop
-            </button>
-          )
-        )}
-      </div>
-
-      <div className="mb-3">
-        <input
-          type="text"
-          placeholder="Search by salon name or area..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full bg-neutral-900 border border-neutral-800 rounded-2xl px-4 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-500"
-        />
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 p-1 bg-neutral-900 border border-neutral-800 rounded-2xl mb-4">
-        <button
-          type="button"
-          onClick={() => setSelectedCategory("all")}
-          className={`py-2 rounded-xl text-xs font-bold transition ${
-            selectedCategory === "all"
-              ? "bg-neutral-800 text-white shadow-sm border border-neutral-700"
-              : "text-neutral-400 hover:text-white"
-          }`}
-        >
-          All Salons
-        </button>
-        <button
-          type="button"
-          onClick={() => setSelectedCategory("men")}
-          className={`py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 ${
-            selectedCategory === "men"
-              ? "bg-amber-500 text-neutral-950 shadow-md"
-              : "text-neutral-400 hover:text-white"
-          }`}
-        >
-          <span>✂️</span> Men / Gents
-        </button>
-        <button
-          type="button"
-          onClick={() => setSelectedCategory("women")}
-          className={`py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 ${
-            selectedCategory === "women"
-              ? "bg-pink-500 text-white shadow-md shadow-pink-500/20"
-              : "text-neutral-400 hover:text-white"
-          }`}
-        >
-          <span>🌸</span> Women / Parlour
-        </button>
-      </div>
-
-      <div className="flex items-center justify-between px-1 mb-3 text-[11px] text-neutral-400 font-medium">
-        <span>Showing {filteredShops.length} salons nearby</span>
-        <button
-          onClick={() => setSortByRating(!sortByRating)}
-          className="text-amber-400 hover:underline flex items-center gap-1"
-        >
-          ⭐ {sortByRating ? "Sorted by Highest Rating" : "Default Order"}
-        </button>
-      </div>
-
-      <div className="space-y-4">
-        {loading ? (
-          <div className="text-center py-12 text-neutral-500 text-xs animate-pulse">
-            Finding verified top-rated salons...
-          </div>
-        ) : filteredShops.length === 0 ? (
-          <div className="text-center py-12 bg-neutral-900 rounded-3xl border border-neutral-800 p-6 space-y-3">
-            <p className="text-sm font-semibold text-neutral-300">No matching salons found.</p>
-            <p className="text-xs text-neutral-500">Try changing the category or search keyword.</p>
-          </div>
-        ) : (
-          filteredShops.map((shop) => {
-            const isMyOwnShop =
-              currentEmail &&
-              shop.owner_email &&
-              shop.owner_email.trim().toLowerCase() === currentEmail.trim().toLowerCase();
-
-            const ratingNum = Number(shop.rating) || 5.0;
-            const normalizedCat = (shop.category || "").toString().trim().toLowerCase();
-
-            return (
-              <div
-                key={shop.id}
-                className="bg-neutral-900 border border-neutral-800/90 rounded-3xl overflow-hidden hover:border-amber-500/50 transition duration-200 group shadow-xl"
-              >
-                <div
-                  onClick={() => {
-                    if (isMyOwnShop) {
-                      router.push("/portal-access/dashboard");
-                    } else {
-                      router.push(`/shop/${shop.id}`);
-                    }
-                  }}
-                  className="h-44 w-full relative overflow-hidden bg-neutral-950 cursor-pointer"
+            <div className="flex justify-center gap-2 text-2xl cursor-pointer">
+              {[1, 2, 3, 4, 5].map((s) => (
+                <span
+                  key={s}
+                  onClick={() => setRatingVal(s)}
+                  className={s <= ratingVal ? "text-amber-400" : "text-neutral-700"}
                 >
-                  <img
-                    src={
-                      shop.image_url ||
-                      "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=600&q=80"
-                    }
-                    alt={shop.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                  />
+                  ★
+                </span>
+              ))}
+            </div>
 
-                  <div className="absolute top-3 right-3 bg-neutral-950/85 backdrop-blur-md px-3 py-1 rounded-full border border-neutral-800 text-xs font-extrabold flex items-center gap-1">
-                    <span className="text-amber-400">★</span>
-                    <span className="text-white">{ratingNum.toFixed(1)}</span>
-                    <span className="text-[10px] text-neutral-400 font-normal">/ 5</span>
-                  </div>
+            <textarea
+              placeholder="Leave feedback (optional)..."
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2 text-xs text-white"
+              rows={2}
+            />
 
-                  <div className="absolute top-3 left-3 bg-neutral-950/80 backdrop-blur-md px-2.5 py-0.5 rounded-lg border border-neutral-800 text-[10px] font-bold text-neutral-300">
-                    {normalizedCat === "women"
-                      ? "🌸 WOMEN ONLY"
-                      : normalizedCat === "men"
-                      ? "✂️ GENTS ONLY"
-                      : "✨ UNISEX"}
-                  </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingReviewBooking(null)}
+                className="w-1/2 py-2 text-xs text-neutral-400 bg-neutral-800 rounded-xl"
+              >
+                Later
+              </button>
+              <button
+                onClick={submitReview}
+                className="w-1/2 py-2 text-xs font-bold text-neutral-950 bg-amber-500 rounded-xl"
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-                  {isMyOwnShop ? (
-                    <div className="absolute bottom-3 left-3 bg-amber-500 text-neutral-950 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold shadow-md">
-                      YOUR SALON (OWNER)
-                    </div>
-                  ) : (
-                    <div className="absolute bottom-3 left-3 bg-emerald-500 text-neutral-950 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold">
-                      OPEN NOW
-                    </div>
-                  )}
+      {/* 2. ADMIN VERIFICATION PANEL (Only for amitpande3250@gmail.com) */}
+      {isAdmin && unverifiedShops.length > 0 && (
+        <div className="m-4 p-4 rounded-3xl bg-amber-500/10 border border-amber-500/30 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+              ⚠️ Pending Approvals ({unverifiedShops.length})
+            </span>
+            <span className="text-[10px] bg-amber-500 text-neutral-950 px-2 py-0.5 rounded-full font-extrabold">
+              Admin Only
+            </span>
+          </div>
+          <p className="text-[11px] text-neutral-400">
+            Yeh shops abhi live nahi hain. Inhe verify karke approve karo ya delete karo:
+          </p>
+
+          <div className="space-y-2">
+            {unverifiedShops.map((u) => (
+              <div key={u.id} className="p-3 bg-neutral-900 border border-neutral-800 rounded-2xl flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-white">{u.name}</h4>
+                  <p className="text-[10px] text-neutral-400">📍 {u.address} | 📞 {u.phone || "No phone"}</p>
+                  <p className="text-[10px] text-neutral-500">By: {u.owner_email}</p>
                 </div>
-
-                <div className="p-4 space-y-2.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h2
-                        onClick={() => {
-                          if (isMyOwnShop) {
-                            router.push("/portal-access/dashboard");
-                          } else {
-                            router.push(`/shop/${shop.id}`);
-                          }
-                        }}
-                        className="text-base font-bold text-white group-hover:text-amber-400 transition cursor-pointer flex items-center gap-1.5"
-                      >
-                        {shop.name}
-                      </h2>
-                      <p className="text-xs text-neutral-400 line-clamp-1 mt-0.5">
-                        📍 {shop.address} {shop.city ? `(${shop.city})` : ""}
-                      </p>
-                    </div>
-
-                    {shop.map_link && (
-                      <a
-                        href={shop.map_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-neutral-800 hover:bg-neutral-700 text-amber-400 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl border border-neutral-700 whitespace-nowrap transition"
-                      >
-                        🗺️ Map
-                      </a>
-                    )}
-                  </div>
-
-                  <div className="pt-2 border-t border-neutral-800/80 flex items-center justify-between text-xs">
-                    <span className="text-neutral-400 text-[11px]">
-                      📞 {shop.phone || "Verified Listing"}
-                    </span>
-
-                    {isMyOwnShop ? (
-                      <button
-                        onClick={() => router.push("/portal-access/dashboard")}
-                        className="text-emerald-400 font-bold bg-emerald-500/10 px-3 py-1 rounded-xl border border-emerald-500/30 hover:bg-emerald-500/20 transition"
-                      >
-                        Dashboard ✂️
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => router.push(`/shop/${shop.id}`)}
-                        className="text-amber-400 font-bold hover:translate-x-1 transition flex items-center gap-1"
-                      >
-                        Check Ratings & Book →
-                      </button>
-                    )}
-                  </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => handleApproveShop(u.id)}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1.5 rounded-xl text-xs"
+                  >
+                    ✓ Live
+                  </button>
+                  <button
+                    onClick={() => handleDeleteShop(u.id, u.name)}
+                    className="bg-red-600 hover:bg-red-500 text-white font-bold px-2.5 py-1.5 rounded-xl text-xs"
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
-            );
-          })
-        )}
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 3. CLEAN SEARCH BAR + ACTIONS */}
+      <section className="px-4 pt-4 pb-2">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              placeholder="Search salon name, city, or area..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-neutral-900 border border-neutral-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-500 transition"
+            />
+            <span className="absolute left-3.5 top-2.5 text-neutral-500 text-xs">🔍</span>
+          </div>
+
+          {currentEmail && (
+            ownedShopId ? (
+              <button
+                onClick={() => router.push("/admin")}
+                className="text-xs bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 px-3 py-2.5 rounded-2xl font-bold transition flex items-center gap-1 shrink-0"
+              >
+                <span>🛡️ Admin Panel</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => router.push("/register-shop")}
+                className="text-xs bg-amber-500 hover:bg-amber-400 text-neutral-950 px-3 py-2.5 rounded-2xl font-bold transition shrink-0"
+              >
+                + Register
+              </button>
+            )
+          )}
+        </div>
+      </section>
+
+      {/* 4. CATEGORY SELECTOR TABS */}
+      <div className="p-4 space-y-4 pt-2">
+        <div className="grid grid-cols-3 gap-2 p-1 bg-neutral-900 border border-neutral-800 rounded-2xl">
+          <button
+            type="button"
+            onClick={() => setSelectedCategory("all")}
+            className={`py-2 rounded-xl text-xs font-bold transition ${
+              selectedCategory === "all" ? "bg-neutral-800 text-white" : "text-neutral-400"
+            }`}
+          >
+            All Studios
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedCategory("men")}
+            className={`py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 ${
+              selectedCategory === "men" ? "bg-amber-500 text-neutral-950" : "text-neutral-400"
+            }`}
+          >
+            <span>✂️</span> Men
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedCategory("women")}
+            className={`py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 ${
+              selectedCategory === "women" ? "bg-pink-500 text-white" : "text-neutral-400"
+            }`}
+          >
+            <span>🌸</span> Women
+          </button>
+        </div>
+
+        {/* 5. VERIFIED SALON LISTINGS */}
+        <div className="space-y-4">
+          {loading ? (
+            <p className="text-center py-12 text-xs text-neutral-500 animate-pulse">
+              Finding verified salons...
+            </p>
+          ) : filteredShops.length === 0 ? (
+            <div className="text-center py-12 bg-neutral-900 rounded-3xl border border-neutral-800 p-6 text-xs text-neutral-500">
+              No verified salons available.
+            </div>
+          ) : (
+            filteredShops.map((shop) => {
+              const rawCat = (shop.category || "").toString().trim().toLowerCase();
+
+              return (
+                <div
+                  key={shop.id}
+                  className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-lg"
+                >
+                  <div className="h-40 w-full bg-neutral-950 relative">
+                    <img
+                      src={
+                        shop.image_url ||
+                        "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=600&q=80"
+                      }
+                      alt={shop.name}
+                      className="w-full h-full object-cover"
+                    />
+                    <span className="absolute top-3 left-3 bg-black/80 backdrop-blur-md px-2.5 py-0.5 rounded-lg text-[10px] font-bold border border-neutral-800 text-white">
+                      {rawCat === "women"
+                        ? "🌸 WOMEN ONLY"
+                        : rawCat === "men"
+                        ? "✂️ GENTS ONLY"
+                        : "✨ UNISEX"}
+                    </span>
+
+                    {/* ADMIN MASTER DELETE */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDeleteShop(shop.id, shop.name)}
+                        className="absolute top-3 right-3 bg-red-600/90 hover:bg-red-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-xl shadow-md transition flex items-center gap-1"
+                      >
+                        🗑️ Delete
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="p-4 flex items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-base font-bold text-white">{shop.name}</h3>
+                      <p className="text-xs text-neutral-400 line-clamp-1">📍 {shop.address}</p>
+                    </div>
+
+                    <button
+                      onClick={() => router.push(`/shop/${shop.id}`)}
+                      className="text-xs bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black px-4 py-2.5 rounded-xl shrink-0 transition"
+                    >
+                      Book Chair →
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );
