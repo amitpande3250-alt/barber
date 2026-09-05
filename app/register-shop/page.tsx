@@ -14,12 +14,45 @@ export default function RegisterShopPage() {
   const [mapLink, setMapLink] = useState("");
   const [category, setCategory] = useState<"men" | "women" | "unisex">("unisex");
   const [submitting, setSubmitting] = useState(false);
+  const [gettingLocation, setGettingLocation] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  // Live GPS Location Tracker
+  const handleGetLiveLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Aapke device me Geolocation support nahi hai. Kripya manually link dalein.");
+      return;
+    }
+
+    setGettingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const generatedLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
+        setMapLink(generatedLink);
+        setGettingLocation(false);
+        alert(`Location detected successfully!\nCoords: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+      },
+      (error) => {
+        setGettingLocation(false);
+        if (error.code === error.PERMISSION_DENIED) {
+          alert("Location access denied! Phone settings me browser ko location permission dein.");
+        } else {
+          alert("Location detect karne me samasya aayi: " + error.message);
+        }
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
+    if (!mapLink) {
+      alert("Kripya live GPS location detect karein ya map link add karein.");
+      return;
+    }
 
+    setSubmitting(true);
     const email = auth.currentUser?.email || localStorage.getItem("customer_user_email") || "guest@unisaloon.com";
 
     const { error } = await supabase.from("shops").insert([
@@ -32,7 +65,7 @@ export default function RegisterShopPage() {
         category,
         owner_email: email.trim().toLowerCase(),
         is_open: true,
-        is_verified: false, // Pending master review
+        is_verified: false,
         rating: 5.0
       }
     ]);
@@ -62,7 +95,7 @@ export default function RegisterShopPage() {
                 Thank you for listing <strong className="text-amber-400">{name}</strong> on UNI saloon.
               </p>
               <div className="p-3 bg-neutral-950 rounded-2xl border border-neutral-800 text-[11px] text-neutral-400 text-left space-y-1">
-                <p>• <strong>Location Verification:</strong> Our administrative team will inspect your physical salon address and Google Map location.</p>
+                <p>• <strong>Location Verification:</strong> Our administrative team will inspect your physical salon address and GPS coordinates.</p>
                 <p>• <strong>Review Window:</strong> Verification typically takes up to <strong>24 hours</strong>.</p>
                 <p>• <strong>Go Live:</strong> Once approved, your studio will be published on the marketplace.</p>
               </div>
@@ -156,17 +189,40 @@ export default function RegisterShopPage() {
           </div>
         </div>
 
-        <div>
-          <label className="text-xs font-bold text-amber-400 block mb-1">Google Maps Location Link (Helps Fast Verification) *</label>
+        {/* GPS LIVE LOCATION SECTION */}
+        <div className="space-y-2 p-3.5 bg-neutral-900/90 border border-neutral-800 rounded-2xl">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-amber-400 block">
+              📍 GPS Location Verification *
+            </label>
+            {mapLink && (
+              <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                ✓ Location Tagged
+              </span>
+            )}
+          </div>
+          
+          <p className="text-[11px] text-neutral-400 leading-relaxed">
+            Dukan me khade hokar niche diye button ko dabayein taaki exact live GPS location capture ho sake.
+          </p>
+
+          <button
+            type="button"
+            onClick={handleGetLiveLocation}
+            disabled={gettingLocation}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-md shadow-indigo-600/20 disabled:opacity-50"
+          >
+            {gettingLocation ? "📡 Fetching GPS Location..." : "📍 Detect Current Shop Location"}
+          </button>
+
           <input
             type="url"
             required
-            placeholder="https://maps.google.com/?q=..."
+            placeholder="Live Google Maps Link yahan generate hoga..."
             value={mapLink}
             onChange={(e) => setMapLink(e.target.value)}
-            className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-500"
+            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-[11px] text-neutral-300 placeholder-neutral-600 focus:outline-none focus:border-amber-500"
           />
-          <span className="text-[10px] text-neutral-500 mt-1 block">Paste direct Google Maps share link to prove the location is genuine.</span>
         </div>
 
         <button
